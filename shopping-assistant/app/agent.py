@@ -36,6 +36,12 @@ DISCOUNT_CODES = {
 }
 REDEEMED_BY = {}
 
+# In-memory store for shopping carts
+CARTS = {
+    "cart_1": {"user_id": "user_1", "total": 100.0, "status": "active"},
+    "cart_2": {"user_id": "user_2", "total": 200.0, "status": "active"},
+}
+
 
 def redeem_discount_code(code: str, user_id: str) -> str:
     """Redeems a single-use discount code for a registered user.
@@ -58,6 +64,69 @@ def redeem_discount_code(code: str, user_id: str) -> str:
     DISCOUNT_CODES[code]["redeemed"] = True
     REDEEMED_BY[code] = user_id
     return f"Success! User {user_id} redeemed code {code} for a {DISCOUNT_CODES[code]['discount']} discount."
+
+
+def process_cart_checkout(cart_id: str, discount_code: str = None, user_id: str = None) -> str:
+    """Processes the checkout for a shopping cart, applying an optional discount code.
+
+    Args:
+        cart_id: The ID of the cart to checkout.
+        discount_code: An optional discount code to apply.
+        user_id: The ID of the user performing the checkout.
+
+    Returns:
+        A summary of the checkout process, including final price and discount applied.
+    """
+    if not cart_id:
+        return "Error: Cart ID is required."
+
+    cart = CARTS.get(cart_id)
+    if not cart:
+        return f"Error: Cart {cart_id} not found."
+
+    if not user_id:
+        return "Error: User ID is required for checkout."
+
+    if cart["user_id"] != user_id:
+        return f"Error: User {user_id} is not authorized to checkout cart {cart_id}."
+
+    if cart["status"] == "processed":
+        return f"Error: Cart {cart_id} has already been processed."
+
+    total = cart["total"]
+    applied_discount = 0.0
+    discount_msg = "No discount applied."
+
+    if discount_code:
+        code = discount_code.upper()
+        if code not in DISCOUNT_CODES:
+            return f"Error: Invalid discount code {discount_code}."
+        if DISCOUNT_CODES[code]["redeemed"]:
+            return f"Error: Discount code {discount_code} has already been redeemed."
+
+        # Calculate discount (e.g., "50%" -> 0.5)
+        discount_percent = float(DISCOUNT_CODES[code]["discount"].strip("%")) / 100.0
+        applied_discount = total * discount_percent
+        final_total = total - applied_discount
+        discount_msg = f"Discount {code} applied: -${applied_discount:.2f}"
+
+        # Mark as redeemed
+        DISCOUNT_CODES[code]["redeemed"] = True
+        REDEEMED_BY[code] = user_id
+
+    else:
+        final_total = total
+
+    final_total = max(0, final_total)
+    cart["status"] = "processed"
+
+    return (
+        f"Checkout successful for cart {cart_id}!\n"
+        f"Original Total: ${total:.2f}\n"
+        f"Discount: {discount_msg}\n"
+        f"Final Total: ${final_total:.2f}\n"
+        f"Order processed for user {user_id}."
+    )
 
 
 def get_weather(query: str) -> str:
@@ -101,7 +170,7 @@ root_agent = Agent(
         retry_options=types.HttpRetryOptions(attempts=3),
     ),
     instruction="You are a helpful AI shopping assistant for a retail store. You can help users with their shopping queries and redeem discount codes.",
-    tools=[redeem_discount_code, get_weather, get_current_time],
+    tools=[redeem_discount_code, process_cart_checkout, get_weather, get_current_time],
 )
 
 app = App(
